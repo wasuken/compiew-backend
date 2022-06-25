@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	"crypto/sha1"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -14,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
 func download(dlfile *os.File, url string) error {
@@ -38,7 +38,7 @@ func getZipFileInfo(url string) ([]string, error) {
 
 	err := download(tmp, url)
 	if err != nil {
-		panic(err)
+		return []string{}, err
 	}
 
 	rst := strings.Split(url, "?")
@@ -46,16 +46,29 @@ func getZipFileInfo(url string) ([]string, error) {
 	ext := ps[len(ps)-1]
 
 	if strings.ToLower(ext) == "gz" {
-		return parseTarGz(tmp)
+		tmp.Close()
+		return parseTarGz(tmp.Name())
 	} else {
 		return parsePKZip(tmp)
 	}
 }
 
 // tar.gzをパース、ファイルパスを取得
-func parseTarGz(zfile *os.File) ([]string, error) {
-	read, _ := gzip.NewReader(zfile)
+// tmpfileの削除もこちらで行う
+func parseTarGz(path string) ([]string, error) {
+	zfile, errr := os.Open(path)
+	if errr != nil {
+		os.Remove(path)
+		return []string{}, errr
+	}
+	defer zfile.Close()
+	read, er := gzip.NewReader(zfile)
 	defer read.Close()
+	if er != nil {
+		os.Remove(path)
+		return []string{}, er
+	}
+
 	tarReader := tar.NewReader(read)
 	pathes := []string{}
 	for {
@@ -65,14 +78,24 @@ func parseTarGz(zfile *os.File) ([]string, error) {
 		}
 		pathes = append(pathes, tHeader.Name)
 	}
+	// tempfileの削除
+	er = os.Remove(path)
+	if er != nil {
+		// 消せなくても一応返却はする
+		return pathes, er
+	}
 
 	return pathes, nil
 }
 
+// tmpfileの削除もこちらで行う
 // zipをパース、ファイルパスを取得
 func parsePKZip(zfile *os.File) ([]string, error) {
 	read, err := zip.OpenReader(zfile.Name())
 	if err != nil {
+		name := zfile.Name()
+		zfile.Close()
+		os.Remove(name)
 		return []string{}, err
 	}
 	defer read.Close()
@@ -80,6 +103,14 @@ func parsePKZip(zfile *os.File) ([]string, error) {
 	pathes := []string{}
 	for _, file := range read.File {
 		pathes = append(pathes, file.FileHeader.Name)
+	}
+	err = os.Remove(zfile.Name())
+	if err != nil {
+		// 消せなくても一応返却はする
+		name := zfile.Name()
+		zfile.Close()
+		os.Remove(name)
+		return pathes, err
 	}
 	return pathes, nil
 }
@@ -90,8 +121,11 @@ type Resp struct {
 }
 
 func main() {
-	fmt.Println("hello.")
 	e := echo.New()
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{"http://localhost:3333"},
+		AllowMethods: []string{http.MethodGet, http.MethodPut, http.MethodPost, http.MethodDelete},
+	}))
 	e.GET("/", func(c echo.Context) error {
 		return c.String(http.StatusOK, "Hello, World!")
 	})
