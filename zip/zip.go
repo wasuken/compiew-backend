@@ -3,15 +3,25 @@ package zip
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 )
+
+// 圧縮ファイル内部コンテンツの抽象化構造体
+type ZFileInfo struct {
+	Content string
+	// 相対パス
+	Path  string
+	IsDir bool
+}
 
 func download(dlfile *os.File, url string) error {
 	resp, err := http.Get(url)
@@ -31,7 +41,9 @@ func GetZipFileInfo(url string) ([]string, error) {
 	io.WriteString(sha1, url)
 	hsUrl := hex.EncodeToString(sha1.Sum(nil))
 
-	tmp, _ := ioutil.TempFile("", hsUrl)
+	tmpdir := os.Getenv("TEMP_DIR") + "/"
+	cur, _ := os.Getwd()
+	tmp, _ := os.Create(cur + tmpdir + hsUrl)
 	defer tmp.Close()
 
 	err := download(tmp, url)
@@ -51,6 +63,39 @@ func GetZipFileInfo(url string) ([]string, error) {
 	}
 }
 
+// 圧縮ファイルをtmpへ吐き出す処理
+// zname 圧縮ファイルの名前、この名前でディレクトリを作成する
+func dumpZipFile(zname string, savePathes []*ZFileInfo) error {
+	tmpdir := os.Getenv("TEMP_DIR") + "/"
+	cur, _ := os.Getwd()
+	zipDir := cur + tmpdir + zname
+	err := os.MkdirAll(zipDir, 0777)
+	// 既にする場合もあるので、とりあえずログ吐くだけ
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	var f *os.File
+	for _, zfile := range savePathes {
+		if zfile.IsDir {
+			os.MkdirAll(zipDir+"/"+zfile.Path, 0777)
+		} else {
+			f, err = os.Create(zipDir + "/" + zfile.Path)
+			defer f.Close()
+			_, err = f.WriteString(zfile.Content)
+			if err != nil {
+				break
+			}
+		}
+	}
+
+	if err != nil {
+		return err
+	}
+	return nil
+
+}
+
 // tar.gzをパース、ファイルパスを取得
 // tmpfileの削除もこちらで行う
 func parseTarGz(path string) ([]string, error) {
@@ -68,6 +113,7 @@ func parseTarGz(path string) ([]string, error) {
 	}
 
 	tarReader := tar.NewReader(read)
+	savePathes := []*ZFileInfo{}
 	pathes := []string{}
 	for {
 		tHeader, err := tarReader.Next()
@@ -75,12 +121,21 @@ func parseTarGz(path string) ([]string, error) {
 			break
 		}
 		pathes = append(pathes, tHeader.Name)
+		var content string
+
+		if !tHeader.FileInfo().IsDir() {
+
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(tarReader)
+
+			content = buf.String()
+		}
+		p := &ZFileInfo{Path: tHeader.Name, IsDir: tHeader.FileInfo().IsDir(), Content: content}
+		savePathes = append(savePathes, p)
 	}
-	// tempfileの削除
-	er = os.Remove(path)
-	if er != nil {
-		// 消せなくても一応返却はする
-		return pathes, er
+	err := dumpZipFile(filepath.Base(path), savePathes)
+	if err != nil {
+		return []string{}, err
 	}
 
 	return pathes, nil
@@ -98,17 +153,33 @@ func parsePKZip(zfile *os.File) ([]string, error) {
 	}
 	defer read.Close()
 
+	savePathes := []*ZFileInfo{}
 	pathes := []string{}
 	for _, file := range read.File {
+		var content string
+		if !file.Mode().IsDir() {
+			fs, errr := file.Open()
+			if errr != nil {
+				continue
+			}
+			defer fs.Close()
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(fs)
+
+			content = buf.String()
+
+		}
+		p := &ZFileInfo{Path: file.FileHeader.Name, IsDir: file.Mode().IsDir(), Content: content}
+		savePathes = append(savePathes, p)
 		pathes = append(pathes, file.FileHeader.Name)
 	}
-	err = os.Remove(zfile.Name())
+	err = dumpZipFile(filepath.Base(zfile.Name()), savePathes)
 	if err != nil {
-		// 消せなくても一応返却はする
-		name := zfile.Name()
-		zfile.Close()
-		os.Remove(name)
-		return pathes, err
+		return []string{}, err
 	}
 	return pathes, nil
+}
+
+func GetZipFileContent(path string) (string, error) {
+	return path, nil
 }
