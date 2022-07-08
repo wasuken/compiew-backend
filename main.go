@@ -2,11 +2,14 @@ package main
 
 import (
 	myzip "compiew_api/zip"
+	"log"
 	"net/http"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/pkg/errors"
 )
 
 type ZipInfoResp struct {
@@ -36,7 +39,8 @@ func main() {
 		url := c.QueryParam("url")
 		pathes, err := myzip.GetZipFileInfo(url)
 		if err != nil {
-			panic(err)
+			e := errors.Wrap(err, "error")
+			log.Printf("%+v", e)
 		}
 		r := ZipInfoResp{Status: 200, Pathes: pathes}
 
@@ -44,11 +48,18 @@ func main() {
 	})
 	e.GET("/zip/content", func(c echo.Context) error {
 		path := c.QueryParam("path")
-		content, err := myzip.GetZipFileContent(path)
+		path = strings.ReplaceAll(path, "'", "")
+		url := c.QueryParam("url")
+		url = strings.ReplaceAll(url, "'", "")
+		status := 200
+		content, err := myzip.GetZipFileContent(url, path)
 		if err != nil {
-			panic(err)
+			e := errors.Wrap(err, "error")
+			log.Printf("%+v", e)
+			status = 500
+			content = "error"
 		}
-		r := ZipContentResp{Status: 200, Content: content}
+		r := ZipContentResp{Status: status, Content: content}
 
 		return c.JSON(http.StatusOK, r)
 	})

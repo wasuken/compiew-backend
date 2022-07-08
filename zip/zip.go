@@ -9,10 +9,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/pkg/errors"
 )
 
 // 圧縮ファイル内部コンテンツの抽象化構造体
@@ -26,11 +29,16 @@ type ZFileInfo struct {
 func download(dlfile *os.File, url string) error {
 	resp, err := http.Get(url)
 	if err != nil {
-		return err
+		e := errors.Wrap(err, "download error")
+		return e
 	}
 	defer resp.Body.Close()
 
 	_, er := io.Copy(dlfile, resp.Body)
+	if er != nil {
+		e := errors.Wrap(er, "copy error")
+		return e
+	}
 	return er
 }
 
@@ -41,7 +49,7 @@ func GetZipFileInfo(url string) ([]string, error) {
 	io.WriteString(sha1, url)
 	hsUrl := hex.EncodeToString(sha1.Sum(nil))
 
-	tmpdir := os.Getenv("TEMP_DIR") + "/"
+	tmpdir := "/" + os.Getenv("TEMP_DIR") + "/"
 	cur, _ := os.Getwd()
 	tmp, _ := os.Create(cur + tmpdir + hsUrl)
 	defer tmp.Close()
@@ -66,7 +74,7 @@ func GetZipFileInfo(url string) ([]string, error) {
 // 圧縮ファイルをtmpへ吐き出す処理
 // zname 圧縮ファイルの名前、この名前でディレクトリを作成する
 func dumpZipFile(zname string, savePathes []*ZFileInfo) error {
-	tmpdir := os.Getenv("TEMP_DIR") + "/"
+	tmpdir := "/" + os.Getenv("TEMP_DIR") + "/expand/"
 	cur, _ := os.Getwd()
 	zipDir := cur + tmpdir + zname
 	err := os.MkdirAll(zipDir, 0777)
@@ -77,10 +85,11 @@ func dumpZipFile(zname string, savePathes []*ZFileInfo) error {
 
 	var f *os.File
 	for _, zfile := range savePathes {
-		if zfile.IsDir {
+		if zfile.IsDir == true {
 			os.MkdirAll(zipDir+"/"+zfile.Path, 0777)
 		} else {
 			f, err = os.Create(zipDir + "/" + zfile.Path)
+			// fmt.Printf("	%s\n", zipDir+"/"+zfile.Path)
 			defer f.Close()
 			_, err = f.WriteString(zfile.Content)
 			if err != nil {
@@ -109,7 +118,8 @@ func parseTarGz(path string) ([]string, error) {
 	defer read.Close()
 	if er != nil {
 		os.Remove(path)
-		return []string{}, er
+		e := errors.Wrap(er, "gzip read error")
+		return []string{}, e
 	}
 
 	tarReader := tar.NewReader(read)
@@ -149,7 +159,8 @@ func parsePKZip(zfile *os.File) ([]string, error) {
 		name := zfile.Name()
 		zfile.Close()
 		os.Remove(name)
-		return []string{}, err
+		e := errors.Wrap(err, "zip read error")
+		return []string{}, e
 	}
 	defer read.Close()
 
@@ -180,6 +191,24 @@ func parsePKZip(zfile *os.File) ([]string, error) {
 	return pathes, nil
 }
 
-func GetZipFileContent(path string) (string, error) {
-	return path, nil
+func GetZipFileContent(url, path string) (string, error) {
+	sha1 := sha1.New()
+	io.WriteString(sha1, url)
+	hsUrl := hex.EncodeToString(sha1.Sum(nil))
+
+	tmpdir := "/" + os.Getenv("TEMP_DIR") + "/expand/"
+	cur, _ := os.Getwd()
+	target_path := cur + tmpdir + hsUrl + "/" + path
+	_, er := os.Stat(target_path)
+	if er != nil {
+		e := errors.Wrap(er, "path exists error")
+		return "", e
+	}
+	var bytes []byte
+	bytes, er = ioutil.ReadFile(target_path)
+	if er != nil {
+		e := errors.Wrap(er, "read file error")
+		return "", e
+	}
+	return string(bytes), nil
 }
