@@ -4,6 +4,7 @@ import (
 	myzip "compiew_api/zip"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -27,9 +28,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	origins := os.Getenv("ORIGINS")
+	oris := strings.Split(origins, ",")
 	e := echo.New()
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: []string{"http://localhost:3333", "http://wasu-arch:3333"},
+		AllowOrigins: oris,
 		AllowMethods: []string{http.MethodGet, http.MethodPut, http.MethodPost, http.MethodDelete},
 	}))
 	e.GET("/", func(c echo.Context) error {
