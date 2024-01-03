@@ -5,3 +5,4 @@ WORKDIR $GOPATH/src/github.com/wasuken/compiew
 COPY . $GOPATH/src/github.com/wasuken/compiew
 
 RUN go mod tidy
+CMD ["go", "run", "main.go"]
