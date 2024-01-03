@@ -1,6 +1,6 @@
 module compiew_api
 
-go 1.18
+go 1.21
 
 require (
 	github.com/joho/godotenv v1.4.0
