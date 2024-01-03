@@ -35,10 +35,10 @@ func main() {
 		AllowOrigins: oris,
 		AllowMethods: []string{http.MethodGet, http.MethodPut, http.MethodPost, http.MethodDelete},
 	}))
-	e.GET("/", func(c echo.Context) error {
+	e.GET("/api", func(c echo.Context) error {
 		return c.String(http.StatusOK, "Hello, World!")
 	})
-	e.GET("/zipinfo", func(c echo.Context) error {
+	e.GET("/api/zipinfo", func(c echo.Context) error {
 		url := c.QueryParam("url")
 		pathes, err := myzip.GetZipFileInfo(url)
 		if err != nil {
@@ -49,7 +49,7 @@ func main() {
 
 		return c.JSON(http.StatusOK, r)
 	})
-	e.GET("/zip/content", func(c echo.Context) error {
+	e.GET("/api/zip/content", func(c echo.Context) error {
 		path := c.QueryParam("path")
 		path = strings.ReplaceAll(path, "'", "")
 		url := c.QueryParam("url")
