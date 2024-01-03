@@ -51,6 +51,17 @@ func GetZipFileInfo(url string) ([]string, error) {
 
 	tmpdir := "/" + os.Getenv("TEMP_DIR") + "/"
 	cur, _ := os.Getwd()
+	// キャッシュ
+	if _, err := os.Stat(cur + tmpdir + hsUrl); err == nil {
+		fmt.Println("use cache.")
+		var file *os.File
+		file, err = os.Open(cur + tmpdir + hsUrl)
+		if err != nil {
+			return []string{}, err
+		}
+		defer file.Close()
+		return parseCompress(url, file)
+	}
 	tmp, _ := os.Create(cur + tmpdir + hsUrl)
 	defer tmp.Close()
 
@@ -59,6 +70,10 @@ func GetZipFileInfo(url string) ([]string, error) {
 		return []string{}, err
 	}
 
+	return parseCompress(url, tmp)
+}
+
+func parseCompress(url string, tmp *os.File) ([]string, error) {
 	rst := strings.Split(url, "?")
 	ps := strings.Split(rst[0], ".")
 	ext := ps[len(ps)-1]
